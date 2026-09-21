@@ -5,7 +5,6 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import lombok.Data;
-import org.hibernate.annotations.UuidGenerator;
 
 import java.util.UUID;
 
@@ -22,4 +21,5 @@ public class Product {
 
     private String category;
 
+    private int stock;
 }
