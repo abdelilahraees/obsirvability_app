@@ -2,6 +2,7 @@ package org.example.observability_app.service.imp;
 
 import io.micrometer.observation.annotation.Observed;
 import jakarta.transaction.Transactional;
+import org.example.observability_app.config.SpanTagger;
 import org.example.observability_app.entity.Cart;
 import org.example.observability_app.entity.CartItem;
 import org.example.observability_app.entity.Product;
@@ -28,11 +29,13 @@ public class CartServiceImpl implements CartService {
     private final CartRepo cartRepo;
     private final UserRepo userRepo;
     private final ProductRepo productRepo;
+    private final SpanTagger span;
 
-    public CartServiceImpl(CartRepo cartRepo, UserRepo userRepo, ProductRepo productRepo) {
+    public CartServiceImpl(CartRepo cartRepo, UserRepo userRepo, ProductRepo productRepo, SpanTagger span) {
         this.cartRepo = cartRepo;
         this.userRepo = userRepo;
         this.productRepo = productRepo;
+        this.span = span;
     }
 
     @Override
@@ -50,12 +53,16 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public Cart addItem(String email, UUID productId, int quantity) {
+        span.tag("user.email", email);
+        span.tag("product.id", productId.toString());
+        span.tag("qty", quantity);
         if (quantity <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "quantity must be > 0");
         }
         Cart cart = getOrCreate(email);
         Product product = productRepo.findById(productId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found"));
+        span.tag("product.name", product.getName());
 
         CartItem existing = cart.getItems().stream()
                 .filter(i -> i.getProduct().getId().equals(productId))
@@ -88,10 +95,12 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public Cart checkout(String email) {
+        span.tag("user.email", email);
         Cart cart = getOrCreate(email);
         if (cart.getItems().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "cart is empty");
         }
+        double total = 0;
         for (CartItem item : cart.getItems()) {
             Product p = item.getProduct();
             if (p.getStock() < item.getQuantity()) {
@@ -100,11 +109,14 @@ public class CartServiceImpl implements CartService {
             }
             p.setStock(p.getStock() - item.getQuantity());
             productRepo.save(p);
+            total += p.getPrice() * item.getQuantity();
         }
         int count = cart.getItems().size();
+        span.tag("cart.items", count);
+        span.tag("cart.total", String.valueOf(total));
         cart.getItems().clear();
         cartRepo.save(cart);
-        log.info("checkout ok user={} items={}", email, count);
+        log.info("checkout ok user={} items={} total={}", email, count, total);
         return cart;
     }
 }
